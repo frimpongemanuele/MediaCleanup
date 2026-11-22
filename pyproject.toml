@@ -1,13 +1,30 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "media-cleanup"
 version = "0.2.0"
 description = "Safety-first CLI for organizing Jellyfin media libraries"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Emanuele Frimpong" }]
+keywords = ["jellyfin", "media", "automation", "cli", "file-management"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Utilities",
+]
+
 requires-python = ">=3.10"
 dependencies = ["requests>=2.32,<3"]
+
+[project.urls]
+Repository = "https://github.com/frimpongemanuele/MediaCleanup"
+Issues = "https://github.com/frimpongemanuele/MediaCleanup/issues"
 
 [project.scripts]
 media-cleanup = "media_cleanup.cli:main"
