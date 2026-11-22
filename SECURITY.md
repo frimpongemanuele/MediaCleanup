@@ -1,8 +1,9 @@
 # Safety and privacy
 
-- Preview is the default. Use `--apply` only after checking the output and backing up important files.
-- The selected media folder bounds filesystem operations. Links, junctions and other reparse points are not followed; existing destinations are not overwritten by the checked rename operation. In single-folder mode, the selected folder itself may be renamed alongside its original location.
-- Do not run against a library being modified concurrently. Filesystem checks reduce risk but do not make the rename sequence transactional or immune to concurrent changes.
-- TMDb credentials are read from the `TMDB_API_KEY` environment variable. Never commit credentials or include them in logs, examples or screenshots. API errors report their exception type rather than raw request URLs.
-- If a TMDb key is configured, even a preview may query TMDb using titles inferred from media names. Omit the key if you want local-only processing.
-- Test new or unfamiliar library layouts using synthetic or copied files before applying changes to the original. Operation rollback is not implemented yet.
+- Preview is the default. It builds an in-memory filesystem plan without modifying media. Check the full operation list and back up important files before applying.
+- Use `--plan-out` followed by `--apply-plan` to apply the exact preview. Saved plans contain absolute paths and filesystem identities; keep them private and outside the selected media folder. They are intended for the same filesystem, not transfer to another machine.
+- The selected media folder bounds operations. Links, junctions and reparse points are not followed. In single-folder mode the selected folder may be renamed alongside its original location.
+- Apply checks original source identities, rejects existing destinations and writes a durable operation journal. Use `--rollback JOURNAL` with the original root and the same single-folder mode to reverse confirmed operations. Rollback never removes nonempty directories. If a process was interrupted during an individual operation, the journal may be ambiguous; the tool stops rather than guessing. Inspect the journal and media manually in this case.
+- Do not run against a library being modified concurrently. Filesystem checks reduce risk but do not make the sequence transactional or immune to concurrent changes. Keep an independent backup.
+- TMDb credentials are read from `TMDB_API_KEY`. Never commit credentials or include them in logs, examples or screenshots. API failures report their exception type, not raw request URLs. Even preview may query TMDb using inferred titles; omit the key for local-only planning. Applying a saved plan or rolling back does not perform metadata lookups.
+- The historical `movie_cleanup_V1.py` script is retained for reference; use the modern CLI for saved plans and journals.

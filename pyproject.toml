@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-cleanup"
+version = "0.2.0"
+description = "Safety-first CLI for organizing Jellyfin media libraries"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.32,<3"]
+
+[project.scripts]
+media-cleanup = "media_cleanup.cli:main"
+
+[tool.setuptools]
+packages = ["media_cleanup"]
+py-modules = ["filesystem_safety"]

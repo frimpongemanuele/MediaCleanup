@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 import requests
 
-import movie_cleanup
+from media_cleanup import cli as movie_cleanup
+from media_cleanup import tmdb as metadata
 import movie_cleanup_V1
 from filesystem_safety import FilesystemGuard, UnsafePathError, occupied
 
@@ -104,7 +105,7 @@ class FilesystemSafetyTests(unittest.TestCase):
         show.mkdir()
         (show / "Example.Show.S01E01.mkv").write_bytes(b"synthetic-one")
         (show / "Example.Show.S01E02.mkv").write_bytes(b"synthetic-two")
-        with patch.object(movie_cleanup, "TMDB_API_KEY", ""), contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(metadata, "TMDB_API_KEY", ""), contextlib.redirect_stdout(io.StringIO()):
             with patch("sys.argv", ["movie_cleanup.py", str(show), "--single", "--apply"]):
                 movie_cleanup.main()
         videos = list(self.root.rglob("*.mkv"))
@@ -128,7 +129,7 @@ class FilesystemSafetyTests(unittest.TestCase):
         movie.mkdir()
         (movie / "Example.Movie.2020.mkv").write_bytes(b"synthetic")
         before = sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*"))
-        with patch.object(movie_cleanup, "TMDB_API_KEY", ""), contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(metadata, "TMDB_API_KEY", ""), contextlib.redirect_stdout(io.StringIO()):
             with patch("sys.argv", ["movie_cleanup.py", str(self.root)]):
                 movie_cleanup.main()
             after = sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*"))
@@ -150,7 +151,7 @@ class PrivacyTests(unittest.TestCase):
             ("search_tmdb_tv", "Example"),
             ("get_tmdb_tv_localized_titles", 1),
         ]
-        for module in (movie_cleanup, movie_cleanup_V1):
+        for module in (metadata, movie_cleanup_V1):
             for name, argument in calls:
                 with self.subTest(module=module.__name__, function=name):
                     output = io.StringIO()
