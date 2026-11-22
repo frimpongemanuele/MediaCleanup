@@ -16,3 +16,6 @@ media-cleanup-journal*.jsonl
 build/
 dist/
 *.egg-info/
+
+# Synthetic demo output
+demo-library*/
