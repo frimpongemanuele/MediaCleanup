@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 from difflib import SequenceMatcher
 
+from filesystem_safety import (
+    UnsafePathError, configure_root, occupied, safe_check, safe_children,
+    safe_mkdir, safe_rename, safe_walk,
+)
+
 TMDB_API_KEY = os.getenv("TMDB_API_KEY", "").strip()
 TMDB_SEARCH_URL = "https://api.themoviedb.org/3/search/movie"
 TMDB_DETAILS_URL = "https://api.themoviedb.org/3/movie/{movie_id}"
@@ -58,6 +63,7 @@ def clean_text(text: str) -> str:
     text = re.sub(r"\s*:\s*", " - ", text)
     text = re.sub(r"[._]+", " ", text)
     text = re.sub(FORBIDDEN_CHARS, "", text)
+    text = re.sub(r"[\x00-\x1f\x7f]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -111,7 +117,7 @@ def search_tmdb_movie(title: str, year: Optional[str] = None, language: str = "e
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"  [TMDb] Search failed for '{title}': {e}")
+        print(f"  [TMDb] Search failed for '{title}': {type(e).__name__}")
         return None
 
     results = data.get("results", [])
@@ -180,7 +186,7 @@ def get_tmdb_localized_titles(movie_id: int) -> dict:
             "original": original_title or en_title or it_title,
         }
     except Exception as e:
-        print(f"  [TMDb] Combined details failed for movie_id={movie_id}: {e}")
+        print(f"  [TMDb] Combined details failed for movie_id={movie_id}: {type(e).__name__}")
         return {}
 
 def search_tmdb_tv(title: str, language: str = "en-US") -> Optional[dict]:
@@ -198,7 +204,7 @@ def search_tmdb_tv(title: str, language: str = "en-US") -> Optional[dict]:
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"  [TMDb TV] Search failed for '{title}': {e}")
+        print(f"  [TMDb TV] Search failed for '{title}': {type(e).__name__}")
         return None
 
     results = data.get("results", [])
@@ -322,7 +328,7 @@ def get_tmdb_tv_localized_titles(series_id: int) -> dict:
             "year": year,
         }
     except Exception as e:
-        print(f"  [TMDb TV] Combined details failed for series_id={series_id}: {e}")
+        print(f"  [TMDb TV] Combined details failed for series_id={series_id}: {type(e).__name__}")
         return {}
 
 def fetch_year_from_tmdb(title: str, fallback_year: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[int], float]:
@@ -394,7 +400,7 @@ def detect_flat_show_folder(folder: Path) -> bool:
     if not folder.is_dir():
         return False
 
-    video_files = [p for p in folder.iterdir() if is_video_file(p)]
+    video_files = [p for p in safe_children(folder) if is_video_file(p)]
     if len(video_files) < 2:
         return False
 
@@ -573,24 +579,24 @@ def is_info_file(path: Path) -> bool:
 
 
 def unique_path(path: Path) -> Path:
-    if not path.exists():
+    if not occupied(path):
         return path
     counter = 2
     while True:
         candidate = path.with_name(f"{path.stem} - Version {counter}{path.suffix}")
-        if not candidate.exists():
+        if not occupied(candidate):
             return candidate
         counter += 1
 
 
 def unique_folder_path(path: Path) -> Path:
-    if not path.exists():
+    if not occupied(path):
         return path
 
     counter = 2
     while True:
         candidate = path.parent / f"{path.name} - {counter}"
-        if not candidate.exists():
+        if not occupied(candidate):
             return candidate
         counter += 1
 
@@ -712,7 +718,9 @@ def build_folder_base_name(title: str, year: Optional[str], tmdb_id: Optional[in
 
 
 def rename_item(old_path: Path, new_path: Path, apply_changes: bool) -> Path:
-    if old_path.resolve() == new_path.resolve():
+    safe_check(old_path)
+    safe_check(new_path)
+    if old_path == new_path:
         return old_path
 
     if old_path.name == new_path.name and old_path.parent == new_path.parent:
@@ -721,7 +729,7 @@ def rename_item(old_path: Path, new_path: Path, apply_changes: bool) -> Path:
     target = unique_path(new_path)
     print(f"  {old_path.name}  ->  {target.name}")
     if apply_changes:
-        old_path.rename(target)
+        safe_rename(old_path, target)
     return target
 
 
@@ -731,7 +739,7 @@ def infer_movie_name_and_year(folder: Path) -> Tuple[str, Optional[str], str, Op
     italian_candidates: List[Tuple[str, int]] = []
     video_languages: List[str] = []
 
-    for item in folder.rglob("*"):
+    for item in safe_walk(folder):
         if not item.is_file():
             continue
 
@@ -822,13 +830,13 @@ def process_movie_folder(folder: Path, apply_changes: bool = False) -> None:
     title, year, folder_language, tmdb_id, localized_titles = infer_movie_name_and_year(folder)
 
     source_dir = folder
-    subdirs = [p for p in folder.iterdir() if p.is_dir()]
-    files_here = [p for p in folder.iterdir() if p.is_file()]
+    subdirs = [p for p in safe_children(folder) if p.is_dir()]
+    files_here = [p for p in safe_children(folder) if p.is_file()]
     if len(subdirs) == 1 and not files_here:
         source_dir = subdirs[0]
         print(f"  Using nested source folder: {source_dir.name}")
 
-    all_items = list(source_dir.iterdir())
+    all_items = list(safe_children(source_dir))
 
     video_files = [p for p in all_items if is_video_file(p)]
     sub_files = [p for p in all_items if is_sub_file(p)]
@@ -923,7 +931,7 @@ def process_movie_folder(folder: Path, apply_changes: bool = False) -> None:
     if current_main_folder.name != base_name_folder:
         print(f"  Folder {current_main_folder.name}  ->  {base_name_folder}")
         if apply_changes:
-            current_main_folder.rename(unique_folder_path(final_folder_path))
+            safe_rename(current_main_folder, unique_folder_path(final_folder_path))
             current_main_folder = final_folder_path
 
     if source_dir != folder:
@@ -931,7 +939,7 @@ def process_movie_folder(folder: Path, apply_changes: bool = False) -> None:
 
 
 def split_multi_movie_folder(folder: Path, apply_changes: bool = False) -> bool:
-    all_items = list(folder.iterdir())
+    all_items = list(safe_children(folder))
     video_files = [p for p in all_items if is_video_file(p)]
     subdirs = [p for p in all_items if p.is_dir()]
 
@@ -984,8 +992,8 @@ def split_multi_movie_folder(folder: Path, apply_changes: bool = False) -> bool:
             print(f"  Move file    : {src.name} -> {folder_name}\\{new_name}")
 
             if apply_changes:
-                target_folder.mkdir(exist_ok=True)
-                src.rename(unique_path(target_file))
+                safe_mkdir(target_folder)
+                safe_rename(src, unique_path(target_file))
 
     if unresolved:
         review_folder = folder / "_Needs_Review"
@@ -993,8 +1001,8 @@ def split_multi_movie_folder(folder: Path, apply_changes: bool = False) -> bool:
             src = info["source"]
             print(f"  [REVIEW] {src.name}")
             if apply_changes:
-                review_folder.mkdir(exist_ok=True)
-                src.rename(unique_path(review_folder / src.name))
+                safe_mkdir(review_folder)
+                safe_rename(src, unique_path(review_folder / src.name))
 
     return True
 
@@ -1013,7 +1021,7 @@ def detect_show_root(folder: Path) -> bool:
     if not folder.is_dir():
         return False
 
-    for item in folder.iterdir():
+    for item in safe_children(folder):
         if item.is_dir() and is_season_folder_name(item.name):
             return True
     return False
@@ -1117,13 +1125,13 @@ def infer_show_identity(show_root: Path) -> Tuple[str, Optional[str], Optional[i
 
     # If folder has season subfolders, sample from them
     season_dirs = sorted(
-        [p for p in show_root.iterdir() if p.is_dir() and is_season_folder_name(p.name)],
+        [p for p in safe_children(show_root) if p.is_dir() and is_season_folder_name(p.name)],
         key=lambda p: p.name.lower()
     )
 
     for season_dir in season_dirs[:2]:
         episode_files = sorted(
-            [p for p in season_dir.iterdir() if is_video_file(p)],
+            [p for p in safe_children(season_dir) if is_video_file(p)],
             key=lambda p: p.name.lower()
         )[:3]
 
@@ -1143,7 +1151,7 @@ def infer_show_identity(show_root: Path) -> Tuple[str, Optional[str], Optional[i
 
     # If folder is flat, sample episode files directly
     flat_episode_files = sorted(
-        [p for p in show_root.iterdir() if is_video_file(p)],
+        [p for p in safe_children(show_root) if is_video_file(p)],
         key=lambda p: p.name.lower()
     )[:5]
 
@@ -1212,11 +1220,11 @@ def process_show_folder(show_root: Path, apply_changes: bool = False) -> None:
         print(f"  Show folder {show_root.name}  ->  {desired_root_name}")
         if apply_changes:
             target = unique_folder_path(show_root.parent / desired_root_name)
-            show_root.rename(target)
+            safe_rename(show_root, target)
             show_root = target
 
     season_dirs = sorted(
-        [p for p in show_root.iterdir() if p.is_dir() and is_season_folder_name(p.name)],
+        [p for p in safe_children(show_root) if p.is_dir() and is_season_folder_name(p.name)],
         key=lambda p: p.name.lower()
     )
 
@@ -1235,11 +1243,11 @@ def process_show_folder(show_root: Path, apply_changes: bool = False) -> None:
             print(f"  Season folder {season_dir.name}  ->  {normalized_season_name}")
             if apply_changes:
                 target = unique_folder_path(season_dir.parent / normalized_season_name)
-                season_dir.rename(target)
+                safe_rename(season_dir, target)
                 season_dir = target
 
         episode_files = sorted(
-            [p for p in season_dir.iterdir() if is_video_file(p)],
+            [p for p in safe_children(season_dir) if is_video_file(p)],
             key=lambda p: (extract_episode_number(p.name) or 999, p.name.lower())
         )
 
@@ -1253,7 +1261,7 @@ def process_show_folder(show_root: Path, apply_changes: bool = False) -> None:
                 print(f"  [REVIEW] Could not extract episode number: {ep_file.name}")
                 continue
 
-            new_name = f"{series_title}"
+            new_name = clean_text(series_title)
             if series_year:
                 new_name += f" ({series_year})"
             new_name += f" S{season_num:02d}E{ep_num:02d}{ep_file.suffix.lower()}"
@@ -1289,11 +1297,11 @@ def process_flat_show_folder(show_root: Path, apply_changes: bool = False) -> No
         print(f"  Show folder {show_root.name}  ->  {desired_root_name}")
         if apply_changes:
             target = unique_folder_path(show_root.parent / desired_root_name)
-            show_root.rename(target)
+            safe_rename(show_root, target)
             show_root = target
 
     episode_files = sorted(
-        [p for p in show_root.iterdir() if is_video_file(p)],
+        [p for p in safe_children(show_root) if is_video_file(p)],
         key=lambda p: (
             extract_season_number_from_filename(p.name) or 999,
             extract_episode_number(p.name) or 999,
@@ -1311,7 +1319,7 @@ def process_flat_show_folder(show_root: Path, apply_changes: bool = False) -> No
 
         season_folder_name = f"Season {season_num:02d}"
         target_season_dir = show_root / season_folder_name
-        new_name = f"{series_title}"
+        new_name = clean_text(series_title)
         if series_year:
             new_name += f" ({series_year})"
         new_name += f" S{season_num:02d}E{episode_num:02d}{ep_file.suffix.lower()}"
@@ -1320,7 +1328,7 @@ def process_flat_show_folder(show_root: Path, apply_changes: bool = False) -> No
         print(f"  {ep_file.name}  ->  {new_name}")
 
         if apply_changes:
-            target_season_dir.mkdir(exist_ok=True)
+            safe_mkdir(target_season_dir)
             rename_item(ep_file, target_season_dir / new_name, apply_changes=True)
 
 def main():
@@ -1331,15 +1339,16 @@ def main():
     parser.add_argument("--apply", action="store_true", help="Actually rename files/folders")
     args = parser.parse_args()
 
-    root = Path(args.root).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"Invalid folder: {root}")
+    try:
+        root = configure_root(Path(args.root).expanduser(), allow_root_rename=True)
+    except (UnsafePathError, OSError) as error:
+        raise SystemExit(f"Unable to open media root: {error}") from None
 
     print(f"Scanning: {root}")
     print("Mode:", "APPLY" if args.apply else "DRY RUN")
     print("TMDb key loaded:", "YES" if TMDB_API_KEY else "NO")
 
-    direct_files = list(root.iterdir())
+    direct_files = list(safe_children(root))
     has_media_files = any(
         p.is_file() and p.suffix.lower() in (VIDEO_EXTS | SUB_EXTS | INFO_EXTS)
         for p in direct_files
@@ -1354,7 +1363,7 @@ def main():
         if not handled:
             process_movie_folder(root, apply_changes=args.apply)
     else:
-        for item in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+        for item in sorted(safe_children(root), key=lambda p: p.name.lower()):
             if not item.is_dir():
                 continue
 
@@ -1374,4 +1383,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (UnsafePathError, OSError) as error:
+        raise SystemExit(f"Stopped safely: {error}") from None
