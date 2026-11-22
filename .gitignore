@@ -9,3 +9,10 @@ __pycache__/
 venv/
 .pytest_cache/
 .coverage
+
+# Generated plans and operation journals contain local filenames.
+media-cleanup-plan*.json
+media-cleanup-journal*.jsonl
+build/
+dist/
+*.egg-info/
